@@ -1,0 +1,1 @@
+This project contains various solitaire games in python.
