@@ -10,8 +10,8 @@ from Pile import Pile
 pile = []           # Piles of cards on the table
 cardToMove = None   # Card to be moved
 startValue = 0      # Start value on Final piles
-firstTime = True    # Boolean value used to record when a mouse move was done
-allMoves = []       # Records all moves made by used (needed for undo!)
+firstTime = True
+allMoves = []
 
 def Solitaire ():
     # Set up the graphical root
@@ -25,40 +25,53 @@ def Solitaire ():
     root.resizable(False,False)
 
     deck = Deck()
-    #deck.shuffle()
+    deck.shuffle()
 
-    # Record move of card from pile pSrc to pile pDest
+    # Dumping  a 
+    def dumpPile(title, index):
+        global pile
+        print (title + " Pile #" + str (index))
+        for c in pile[index].cards:
+            print ("\t", c.name, "[" + str(c.pile) + "]", "imageId:", c.imageId, end="")
+        s = ""
+        topCard = pile[index].getTopCard() 
+        if not (topCard is None):
+            name = topCard.name 
+            s += "   Top card: " + topCard.name + " imageId: " + str (topCard.imageId)
+        else:
+            s += "   Top card is None"
+        s += " xMin: " + str(pile[index].xMin) + " xMax: " + str(pile[index].xMax)
+        s += " yMin: " + str(pile[index].yMin) + " yMax: " + str(pile[index].yMax)
+        print (s)
+
+    def dumpCanvas ():
+        print ("Dump canvas:")
+        for id in canvas.find_all():
+            print ("\t", id, canvas.gettags(id), canvas.bbox (id))
+
+    # Record move of card from pSrc to pDest
     def recordMove (pileSrc, pileDest):
         global allMoves
         allMoves.append ([pileSrc, pileDest])
 
-    # Undo the last move recorded
     def undoMove ():
         global allMoves
         if len(allMoves) == 0: return
-
-        # Get last move made (source pile and dest pile)
-        lastMove = allMoves.pop()
-        pSrc = lastMove[0]
-        pDest = lastMove[1]
-
+        oneMove = allMoves.pop()
+        pSrc = oneMove[0]
+        pDest = oneMove[1]
         # Card was move from pSrc to pDest and is now the top card of pDest
-        #print (pile[pDest].peekTopCard(), "was moved from pile:", pSrc, "to pile:", pDest)
-        # Move the card back to the source pile and get its new position
+        print (pile[pDest].peekTopCard(), "was moved from pile:", pSrc, "to pile:", pDest)
         pile[pDest].moveTopCard(pile[pSrc])
+
         topCard = pile[pSrc].peekTopCard()
         newX, newY = pile[pSrc].getTopCardXY()
-        #print (topCard)
-
-        # Move the image at the right place
+        print (topCard)
         moveCardImageTo (topCard, newX, newY)
         # The card should be forward others
         canvas.tag_raise(topCard.imageId)
 
 
-    # The mouse is at position x,y we identify which pile contains
-    # these coordinates and return the top card of that pile if
-    # there is one.
     def getCardToMove (x, y):
         global pile
         for p in range (len(pile) + 1):
@@ -67,15 +80,11 @@ def Solitaire ():
                     return pile[p].peekTopCard()
         return None
     
-    # Move an image to a new position
     def moveCardImageTo (card, newX, newY):
         if card == None: return
-        # Get the rectangle coordinates around the card by
-        # querying the canvas from the imageId associated.
         oldX1, oldY1, oldX2, oldY2 = canvas.bbox (card.imageId)
         dx = newX - oldX1
         dy = newY - oldY1
-        # Move the image
         canvas.move (card.imageId, dx, dy)
 
     # To drag, we identify what card is being moved, create a clone (cardToMove)
@@ -116,17 +125,14 @@ def Solitaire ():
             win = win and pile[p].isFull()
         return win
     
-    # Drop the clone (cardToMove) when user releases the mouse button
+    # Drop the clone (cardToMove)
     def drop (event):
         global pile
         global cardToMove
         global firstTime
-
-        # Reset first time such that the next time user clicks and move the mouse
-        # we capture the starting coordinates.
-        firstTime = True    
+        firstTime = True
         found = False
-        delta = 10      # To allow for room around each pile
+        delta = 10
         if cardToMove == None: return
         # Identify the destination pile
         for p in range (len(pile)):
@@ -139,7 +145,7 @@ def Solitaire ():
              return
         else:
             #print ("Dropping cardToMove = ", cardToMove.name, " imageId = ", cardToMove.imageId)
-            # Verify the drop is acceptable for final piles
+            # For final piles
             if pile[p].type == Constant.FINALPILE:
                 if pile[p].isEmpty() and cardToMove.val != startValue:
                     cancelMove ("Final pile starts with a " + str (startValue))
@@ -155,7 +161,7 @@ def Solitaire ():
                         cancelMove ("Final piles should contain cards in ascending order.")
                         return
             else:
-            # Verify the drop is acceptable for play and/or buffer piles
+            # For play or buffer piles
                 if pile[p].isEmpty() and pile[p].type == Constant.PLAYPILE:
                     cancelMove("Empty space can't be used on the play ground.")
                     return
@@ -180,7 +186,7 @@ def Solitaire ():
             oldPileNb = cardToMove.pile
             pile[oldPileNb].moveTopCard (pile[p])
             recordMove (oldPileNb, p)
-            # The card should be forward the others in the same pile
+            # The card should be forward others
             canvas.tag_raise(pile[p].peekTopCard().imageId)
             # Restore visibility
             canvas.itemconfigure(pile[p].peekTopCard().imageId, state='normal')
@@ -191,6 +197,7 @@ def Solitaire ():
             topCard = pile[p].peekTopCard()
             newX, newY = pile[p].getTopCardXY()
             #print ("Dropping ", topCard.name, "id:", topCard.imageId, " on pile ", p, " at x=", newX, " y=", newY)
+            #dumpCanvas()
             moveCardImageTo (topCard, newX, newY)
             cardToMove = None
 
@@ -198,7 +205,6 @@ def Solitaire ():
             if pile[p].type == Constant.FINALPILE and isWinner():
                 messagebox.showinfo ("Solitaire", "You won!") 
 
-    # Prepare for a new game
     def resetGame ():
         # No piles created => nothing to do
         if len(pile) == 0: return
@@ -210,8 +216,6 @@ def Solitaire ():
         deck.reset()
         deck.shuffle()
 
-    # Deal each card from the deck into the different piles
-    # and display the images
     def deal ():
         global pile
         global startValue
@@ -257,7 +261,6 @@ def Solitaire ():
         root.update_idletasks()
         root.update()
 
-    # Create the user interface
     canvas = Canvas (root, width=13*Constant.PILE_WIDTH, height=3*Constant.PILE_HEIGHT, background="green")
     canvas.place (x=0,y=0, anchor='nw')
 
