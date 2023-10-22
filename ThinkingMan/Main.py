@@ -1,17 +1,19 @@
 import tkinter as tk
 from tkinter import Canvas, messagebox, Button
-import copy
+import time
 from PIL import Image
 from PIL import ImageTk
 from Deck import Deck
 import Constant
 from Pile import Pile
+from Card import Card
 
 pile = []           # Piles of cards on the table
 cardToMove = None   # Card to be moved
-startValue = 0      # Start value on Final piles
-firstTime = True    # Boolean value used to record when a mouse move was done
+#startValue = 0      # Start value on Final piles
+pileSrc = None      # Source pile when moving a card
 allMoves = []       # Records all moves made by used (needed for undo!)
+resizeTime = time.time()
 
 def Solitaire ():
     # Set up the graphical root
@@ -20,12 +22,30 @@ def Solitaire ():
     iconp = Image.open (Constant.CARD_DIR + 'honors_spade-14.png')
     iconPhoto = ImageTk.PhotoImage(iconp)
     root.iconphoto (False, iconPhoto)
-    root.geometry("1200x600")
+    root.geometry(f"{Constant.CANVAS_WIDTH}x{Constant.CANVAS_HEIGHT}")
     root.configure(background="green")
-    root.resizable(False,False)
 
     deck = Deck()
-    #deck.shuffle()
+
+    def dumpCanvas ():
+        print ("Dump canvas:")
+        for id in canvas.find_all():
+            print ("\t", id, canvas.gettags(id), canvas.bbox (id))
+
+    # Not implemented yet
+    def resizeCanvas (e):
+        global resizeTime
+        curr_time = time.time()
+        if (curr_time - resizeTime) < 1:
+            resizeTime = curr_time
+            return
+        w, h = canvas.winfo_width(), canvas.winfo_height()
+        print ("Canvas size:", w, "x", h)
+        wratio = float (e.width / w)
+        hratio = float (e.height / h)
+        # resize canvas
+        canvas.config (width = w, height = h)
+        resizeTime = curr_time
 
     # Record move of card from pile pSrc to pile pDest
     def recordMove (pileSrc, pileDest):
@@ -38,76 +58,65 @@ def Solitaire ():
         if len(allMoves) == 0: return
 
         # Get last move made (source pile and dest pile)
-        lastMove = allMoves.pop()
-        pSrc = lastMove[0]
-        pDest = lastMove[1]
+        pSrc, pDest = allMoves.pop()
 
         # Card was move from pSrc to pDest and is now the top card of pDest
-        #print (pile[pDest].peekTopCard(), "was moved from pile:", pSrc, "to pile:", pDest)
-        # Move the card back to the source pile and get its new position
+        # Move the card back to the source pile
         pile[pDest].moveTopCard(pile[pSrc])
-        topCard = pile[pSrc].peekTopCard()
-        newX, newY = pile[pSrc].getTopCardXY()
-        #print (topCard)
 
         # Move the image at the right place
-        moveCardImageTo (topCard, newX, newY)
-        # The card should be forward others
-        canvas.tag_raise(topCard.imageId)
+        topCard = pile[pSrc].peekTopCard()
+        topCard.adjustImageLocation()
 
+        # The card should be forward others in display list
+        canvas.tag_raise(topCard.id)
 
-    # The mouse is at position x,y we identify which pile contains
-    # these coordinates and return the top card of that pile if
-    # there is one.
-    def getCardToMove (x, y):
-        global pile
-        for p in range (len(pile) + 1):
-            if  pile[p].xMin <= x and pile[p].xMax >= x and \
-                pile[p].yMin <= y and pile[p].yMax >= y :
-                    return pile[p].peekTopCard()
+    # Find the pile that overlap the cursor (x, y)
+    # Give it a little meat to accept close by 
+    def getPileAt (x, y):
+        meat = 20
+        allWidgets = canvas.find_overlapping (x, y, x+meat, y+meat)
+        for w in allWidgets:
+            tags = canvas.gettags(w)
+            if tags[0] == "pile":
+                return int (tags[1])
         return None
     
-    # Move an image to a new position
-    def moveCardImageTo (card, newX, newY):
-        if card == None: return
-        # Get the rectangle coordinates around the card by
-        # querying the canvas from the imageId associated.
-        oldX1, oldY1, oldX2, oldY2 = canvas.bbox (card.imageId)
-        dx = newX - oldX1
-        dy = newY - oldY1
-        # Move the image
-        canvas.move (card.imageId, dx, dy)
+    def click_handler (e):
+        global cardToMove, pileSrc
+        pileSrc = getPileAt (e.x, e.y)
+        if pileSrc == None:
+            cancelImageMove ("You must click on a card to move it.")
+            return
+        cardToMove = pile[pileSrc].peekTopCard ()
+        canvas.focus (cardToMove.id)
 
-    # To drag, we identify what card is being moved, create a clone (cardToMove)
-    # and hide the original card. This has to be done only once.
-    # Then we move the image of cardToMove to where the mouse is located: e.x, e.y
-    def drag (e):
-        global cardToMove
-        global firstTime
-        if firstTime :
-            topCard = getCardToMove (e.x, e.y)
-            #print ("Click on ", topCard.name, "imageId:", topCard.imageId)
-            cardToMove = copy.copy (topCard)
-            canvas.itemconfigure(topCard.imageId, state='hidden')
-            img = cardToMove.resizeImg()
-            cardToMove.imageId = canvas.create_image (e.x, e.y, image=img, tags=('MOVING CARD', cardToMove.name))
-            firstTime = False
-        if cardToMove == None : return 
-        moveCardImageTo (cardToMove, e.x, e.y)
+    # The card to move has been identified during click_handler.
+    # We only need to get its current position and move it
+    # to the current position of the mouse is located: e.x, e.y
+    def dragImage (e):
+        global firstTime, cardToMove
+        if cardToMove == None: return
+        xMin, yMin, xMax, yMax = canvas.bbox (cardToMove.id)
+        dx = e.x - xMin
+        dy = e.y - yMin
+        cardToMove.moveImageTo (dx, dy)
+        cardToMove.raiseImage()
 
     # If the drop is incorrect, the move is canceled.
     # Indicate (messagebox) to the user why the move is incorrect
-    # then delete the clone (cardToMove) and its image
-    # and reset the original card as visible
-    def cancelMove(msg):
-        messagebox.showerror("Solitaire", msg) 
-        global cardToMove
-        # Delete the image of the card moved
-        canvas.delete (cardToMove.imageId)
-        # Make the initial card visible again
-        p = cardToMove.pile
-        canvas.itemconfigure(pile[p].peekTopCard().imageId, state='normal')
+    # then move the image of the card back to its initial position.
+    def cancelImageMove(msg):
+        global cardToMove, pileSrc
+        if len(msg) > 0: messagebox.showerror("Solitaire", msg) 
+        if cardToMove == None: return
+
+        # Coordinates have not been updated yet. We only need
+        # to restore the image
+        cardToMove.adjustImageLocation()
+
         cardToMove = None
+        pileSrc = None
 
     # Returns true if all the final piles are full.
     def isWinner ():
@@ -115,188 +124,146 @@ def Solitaire ():
         for p in range (Constant.INDEX_MIN_FP, Constant.INDEX_MAX_FP+1):
             win = win and pile[p].isFull()
         return win
-    
-    # Drop the clone (cardToMove) when user releases the mouse button
-    def drop (event):
-        global pile
-        global cardToMove
-        global firstTime
 
-        # Reset first time such that the next time user clicks and move the mouse
-        # we capture the starting coordinates.
-        firstTime = True    
-        found = False
-        delta = 10      # To allow for room around each pile
+    # Verify we drop at an acceptable location and update both card location and image.
+    def drop (e):
+        global pile, pileSrc, cardToMove
         if cardToMove == None: return
         # Identify the destination pile
-        for p in range (len(pile)):
-            if  pile[p].xMin - delta <= event.x and pile[p].xMax + delta >= event.x and \
-                pile[p].yMin - delta <= event.y and pile[p].yMax + delta >= event.y :
-                    found = True
-                    break
-        if not found: 
-             cancelMove("Not a destination pile.")
-             return
-        else:
-            #print ("Dropping cardToMove = ", cardToMove.name, " imageId = ", cardToMove.imageId)
-            # Verify the drop is acceptable for final piles
-            if pile[p].type == Constant.FINALPILE:
-                if pile[p].isEmpty() and cardToMove.val != startValue:
-                    cancelMove ("Final pile starts with a " + str (startValue))
-                    return
-                if not pile[p].isEmpty():
-                    topCard = pile[p].peekTopCard()
-                    if cardToMove.color != topCard.color:
-                        cancelMove ("Final piles should contain cards of the same color.")
-                        return
-                    expectedValue = topCard.valNum + 1
-                    if topCard.valNum == 13 : expectedValue = 1
-                    if cardToMove.valNum != expectedValue:
-                        cancelMove ("Final piles should contain cards in ascending order.")
-                        return
-            else:
-            # Verify the drop is acceptable for play and/or buffer piles
-                if pile[p].isEmpty() and pile[p].type == Constant.PLAYPILE:
-                    cancelMove("Empty space can't be used on the play ground.")
-                    return
-                if pile[p].isFull():
-                    cancelMove("Destination pile is full.")
-                    return
-                # Buffer file can be empty but not play piles
-                if not pile[p].isEmpty():
-                    topCard = pile[p].peekTopCard()
-                    if topCard.color == cardToMove.color:
-                        cancelMove("Color should alternate.")
-                        return
-                    expectedValNum = topCard.valNum - 1
-                    if topCard.valNum == 1 : expectedValNum = 13
-                    tmpList = ["A","2", "3","4","5","6","7","8","9","10","J","Q","K"]
-                    expected = tmpList [expectedValNum-1]
-                    if cardToMove.valNum != expectedValNum:
-                        cancelMove("Value should be a " + expected)
-                        return
+        p = getPileAt (e.x, e.y)
+        if p == None: 
+            cancelImageMove ("You can only drop a card on a pile.")
+            return
+        if p == pileSrc:
+        # Drop on the same pile it came from. Cancel the move but no error message.
+            cancelImageMove ("")
+            return
+        
+        check = pile[p].checkDrop (cardToMove)
 
-            # At this point, we can accept the move
-            oldPileNb = cardToMove.pile
-            pile[oldPileNb].moveTopCard (pile[p])
-            recordMove (oldPileNb, p)
-            # The card should be forward the others in the same pile
-            canvas.tag_raise(pile[p].peekTopCard().imageId)
-            # Restore visibility
-            canvas.itemconfigure(pile[p].peekTopCard().imageId, state='normal')
-            # We don't need cardToMove image any more 
-            canvas.delete (cardToMove.imageId)
+        if check == -1:
+            cancelImageMove ("Wrong value for first card on final pile.")
+            return
+        if check == -2:
+            cancelImageMove ("Final piles contain cards of the same suit.")
+            return
+        if check == -3:
+            cancelImageMove ("Final piles are sorted in ascending order.")
+            return
+        if check == -10:
+            cancelImageMove ("Empty play piles can't be reused.")
+            return
+        if check == -11:
+            cancelImageMove ("Pile is full.")
+            return
+        if check == -12:
+            cancelImageMove ("Colors should alternate.")
+            return
+        if check == -13:
+            cancelImageMove ("Values should decrease.")
+            return
+        if check == -99:
+            cancelImageMove ("Unspecific error!")
+            return
 
-            # Card moved is now at the top of pile[p]
-            topCard = pile[p].peekTopCard()
-            newX, newY = pile[p].getTopCardXY()
-            #print ("Dropping ", topCard.name, "id:", topCard.imageId, " on pile ", p, " at x=", newX, " y=", newY)
-            moveCardImageTo (topCard, newX, newY)
-            cardToMove = None
 
-            # Check for win
-            if pile[p].type == Constant.FINALPILE and isWinner():
-                messagebox.showinfo ("Solitaire", "You won!") 
+        # At this point, we can accept the move
+        pile[pileSrc].moveTopCard (pile[p])
+        recordMove (pileSrc, p)
+        # Make sure the image is well positioned
+        cardToMove.adjustImageLocation()
 
-    # Prepare for a new game
+        # Check for win
+        if pile[p].type == Constant.FINALPILE and isWinner():
+            messagebox.showinfo ("Solitaire", "You won!") 
+        
+        # Prepare for next user action
+        cardToMove = None
+        pileSrc = None
+
+    # Prepare for a new games
     def resetGame ():
         # No piles created => nothing to do
         if len(pile) == 0: return
-        # Erase images and empty piles
+        # Empty piles
         for p in range (Constant.INDEX_MIN_PP, Constant.INDEX_MAX_FP+1):
-            while not pile[p].isEmpty():
-                c = pile[p].getTopCard()
-                canvas.delete (c.imageId)
+            pile[p].cards.clear()
+
         deck.reset()
         deck.shuffle()
+        # Move card images out of the way
+        for i in range (deck.remainCnt()):
+            c = deck.peekAtRank (i)
+            c.updateCoordinates (1000, 1000, 1000, 1000)
+            c.adjustImageLocation()
+
+        # Delete the starting value in final piles
+        canvas.delete ("text")
 
     # Deal each card from the deck into the different piles
-    # and display the images
+    # display the images and get the startValue
     def deal ():
-        global pile
         global startValue
         resetGame()
-        # Create play piles with 3 cards in each one
+        # Populate play piles with 3 cards in each one
         for p in range (Constant.INDEX_MIN_PP, Constant.INDEX_MAX_PP+1):
-            pile.append (Pile (p))
             for cardCnt in range (3):
                 c = deck.draw()
                 pile[p].addCard (c)
-                # display the card added
-                x, y = pile[p].getTopCardXY()
-                id = canvas.create_image (x, y, anchor='nw', image=c.image, tags=(c.name))
-                pile[p].updateTopCardId (id)
-            #print (pile[p])
+                c.adjustImageLocation()
+                c.raiseImage()
 
-        # Create 3 buffer piles with 2 cards in each one
+        # Populate 3 buffer piles with 2 cards in each one
         for p in range (Constant.INDEX_MIN_BP, Constant.INDEX_MAX_BP+1):
-            pile.append (Pile (p))
             for cardCnt in range (2):
                 c = deck.draw()
                 pile[p].addCard (c)
-                # display the card added
-                x, y = pile[p].getTopCardXY()
-                id = canvas.create_image (x, y, anchor='nw', image=c.image, tags=(c.name))
-                pile[p].updateTopCardId (id)
-            #print (pile[p])
+                c.adjustImageLocation()
+                c.raiseImage()
 
-        # Create the first final pile with one card showing
-        pile.append (Pile (Constant.INDEX_MIN_FP))
+        # Populate the first final pile with one card showing
         c = deck.draw()
-        pile[Constant.INDEX_MIN_FP].addCard (c)
-        # display the card added
-        x, y = pile[Constant.INDEX_MIN_FP].getTopCardXY()
-        id = canvas.create_image (x, y, anchor='nw', image=c.image, tags=(c.name))
-        pile[Constant.INDEX_MIN_FP].updateTopCardId (id)
-        startValue = c.val
+        p = Constant.INDEX_MIN_FP
+        pile[p].addCard (c)
+        c.adjustImageLocation()
+        c.raiseImage()
 
-        # Create remaining final piles with no cards in each one
+        Pile.startValue = c.val
         for p in range (Constant.INDEX_MIN_FP+1, Constant.INDEX_MAX_FP+1):
-            pile.append (Pile (p))
+            pile[p].displayStartingValue (c.val)
 
         root.update_idletasks()
         root.update()
 
+
     # Create the user interface
-    canvas = Canvas (root, width=13*Constant.PILE_WIDTH, height=3*Constant.PILE_HEIGHT, background="green")
+    canvas = Canvas (root, width=Constant.CANVAS_WIDTH, height=Constant.CANVAS_HEIGHT, background="green")
     canvas.place (x=0,y=0, anchor='nw')
+    Card.canvas = canvas
+    Pile.canvas = canvas
+    w, h = canvas.winfo_width(), canvas.winfo_height()
+    id = canvas.create_rectangle(0, 0, w-1, h-1,outline="white")
 
-    # Place a rectangle around each buffer pile
-    x = Constant.BPILE_XBASE
-    y = Constant.BPILE_YBASE
-    width = Constant.CARD_WIDTH
-    height = Constant.CARD_HEIGHT + 2*Constant.CARD_OVERLAP
-    canvas.create_rectangle(x, y, x+width, y+height, fill='burlywood')
-    x += Constant.PILE_WIDTH
-    canvas.create_rectangle(x, y, x+width, y+height, fill='burlywood')
-    x += Constant.PILE_WIDTH
-    canvas.create_rectangle(x, y, x+width, y+height, fill='burlywood')
-    x += Constant.PILE_WIDTH
+    # Create the piles
+    for p in range (Constant.INDEX_MIN_PP, Constant.INDEX_MAX_FP+1):
+        pile.append (Pile (p))
 
-    # Place a rectangle around each final pile
-    x = Constant.FPILE_XBASE
-    y = Constant.FPILE_YBASE
-    width = Constant.CARD_WIDTH
-    height = Constant.CARD_HEIGHT
-    canvas.create_rectangle(x, y, x+width, y+height, fill='beige')
-    x += Constant.PILE_WIDTH
-    canvas.create_rectangle(x, y, x+width, y+height, fill='beige')
-    x += Constant.PILE_WIDTH
-    canvas.create_rectangle(x, y, x+width, y+height, fill='beige')
-    x += Constant.PILE_WIDTH
-    canvas.create_rectangle(x, y, x+width, y+height, fill='beige')
-
+    # Add buttons
     btn1 = Button (canvas, text="Deal random", bd=10, bg="white", font=("Arial", 14), height=1, width=10, command=deal)
-    x1 = Constant.FPILE_XBASE + 7*Constant.CARD_WIDTH
-    y1 = Constant.FPILE_YBASE + Constant.CARD_OVERLAP
+    canvas.addtag_withtag (btn1, "button")
+    x1 = Constant.FPILE_XBASE + (Constant.PPILE_CNT // 2 + 1) * Constant.CARD_WIDTH
+    y1 = Constant.FPILE_YBASE - Constant.CARD_OVERLAP
     btn1.place (x=x1, y=y1)
     btn2 = Button (canvas, text="Undo", bd=10, bg="white", font=("Arial", 14), height=1, width=10, command=undoMove)
-    x2 = Constant.FPILE_XBASE + 7*Constant.CARD_WIDTH
-    y2 = Constant.FPILE_YBASE - Constant.CARD_OVERLAP
+    canvas.addtag_withtag (btn2, "button")
+    x2 = Constant.FPILE_XBASE + (Constant.PPILE_CNT // 2 + 1) * Constant.CARD_WIDTH
+    y2 = Constant.FPILE_YBASE + Constant.CARD_OVERLAP
     btn2.place (x=x2, y=y2)
 
-    canvas.bind ("<B1-Motion>", drag)
+    canvas.bind ("<Button-1>", click_handler)
+    canvas.bind ("<B1-Motion>", dragImage)
     canvas.bind ("<ButtonRelease-1>", drop)
+    #canvas.bind ("<Configure>", resizeCanvas)
 
     root.mainloop()
 

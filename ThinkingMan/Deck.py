@@ -25,7 +25,11 @@ class Deck():
     def draw (self):
         if len(self.cards) > 0:
             return self.cards.pop()
-    
+
+    def peekAtRank (self, r):
+        if r > len(self.cards) > 0: return
+        return self.cards[r]
+
     def reset (self):
         self.cards = []
         self.build()
