@@ -1,2 +1,1 @@
-This project contains various solitaire games in python.
-1- Thinking Man
+This project contains various solitaire card games in python.
