@@ -9,13 +9,14 @@ PILE_HEIGHT = 200
 PILE_DELTA_X = 20                               # Separation between piles
 PILE_DELTA_Y = 10                               # Separation between piles
 PPILE_CNT = 15                                  # Play piles
+PPILE_CNT_ROW1 = 8                              # Play piles on first row
 PPILE_XBASE = 10                                # First one is at (10, 10)
 PPILE_YBASE = 10
 BPILE_CNT = 3                                   # Buffer piles
-BPILE_XBASE = (PPILE_CNT // 2 + 1) * (PILE_WIDTH + PILE_DELTA_X) + PILE_WIDTH
-BPILE_YBASE = 10
+BPILE_XBASE = (1 + PPILE_CNT_ROW1) * (PILE_WIDTH + PILE_DELTA_X)
+BPILE_YBASE = PPILE_YBASE
 FPILE_CNT = 4                                   # Final piles
-FPILE_XBASE = 10 + 4 * PILE_WIDTH
+FPILE_XBASE = 10 + PILE_WIDTH + PILE_DELTA_X
 FPILE_YBASE = 50 + 2 * PILE_HEIGHT
 
 # Card images:
@@ -35,5 +36,3 @@ INDEX_MAX_FP = INDEX_MIN_FP + FPILE_CNT - 1     # 21
 # Canvas initial size
 CANVAS_WIDTH = PPILE_CNT * CARD_WIDTH
 CANVAS_HEIGHT = 3 * PILE_HEIGHT
-
-

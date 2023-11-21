@@ -7,7 +7,6 @@ from Deck import Deck
 import Constant
 from Pile import Pile
 from Card import Card
-from Simulation import Simulation
 
 pile = []           # Piles of cards on the table
 cardToMove = None   # Card to be moved
@@ -18,7 +17,7 @@ resizeTime = time.time()
 def Solitaire ():
     # Set up the graphical root
     root = tk.Tk()
-    root.title('Thinking Man')
+    root.title('GrandFather')
     iconp = Image.open (Constant.CARD_DIR + 'honors_spade-14.png')
     iconPhoto = ImageTk.PhotoImage(iconp)
     root.iconphoto (False, iconPhoto)
@@ -31,11 +30,6 @@ def Solitaire ():
         print ("Dump canvas:")
         for id in canvas.find_all():
             print ("\t", id, canvas.gettags(id), canvas.bbox (id))
-
-    def simulate ():
-        Simulation.canvas = canvas
-        s = Simulation (pile)
-        print (s.isWinnable())
 
     # Record move of card from pile pSrc to pile pDest
     def recordMove (pileSrc, pileDest):
@@ -81,6 +75,25 @@ def Solitaire ():
         cardToMove = pile[pileSrc].peekTopCard ()
         canvas.focus (cardToMove.id)
 
+    def double_click_handler (e):
+        global cardToMove, pileSrc
+        pileSrc = getPileAt (e.x, e.y)
+        if pileSrc == None:
+            cancelImageMove ("You can only double-click a card.")
+            return
+        cardToMove = pile[pileSrc].peekTopCard ()
+        canvas.focus (cardToMove.id)
+        if cardToMove.val == "A":
+            # Move the ace to the ACEPILE
+            pDest = Constant.INDEX_MAX_PP
+            finalizeMove (pDest)
+        else:
+            # Find a possible pile where the card can be dropped
+            for pDest in range (Constant.INDEX_MIN_PP, Constant.INDEX_MAX_PP):
+                if pile[pDest].checkDrop (cardToMove) >= 0:
+                    finalizeMove (pDest)
+                    break
+
     # The card to move has been identified during click_handler.
     # We only need to get its current position and move it
     # to the current position of the mouse is located: e.x, e.y
@@ -108,11 +121,13 @@ def Solitaire ():
         cardToMove = None
         pileSrc = None
 
-    # Returns true if all the final piles are full.
+    # Returns true if the game is won:
     def isWinner ():
-        win = True
-        for p in range (Constant.INDEX_MIN_FP, Constant.INDEX_MAX_FP+1):
-            win = win and pile[p].isFull()
+        # The 4 aces are out
+        win = pile[Constant.INDEX_MAX_PP].isComplete()
+        # All other piles are either empty or have 3 following cards correct
+        for p in range (Constant.INDEX_MIN_PP, Constant.INDEX_MAX_PP):
+            win = win and (pile[p].isComplete() or pile[p].isEmpty())
         return win
 
     # Verify we drop at an acceptable location and update both card location and image.
@@ -120,28 +135,19 @@ def Solitaire ():
         global pile, pileSrc, cardToMove
         if cardToMove == None: return
         # Identify the destination pile
-        p = getPileAt (e.x, e.y)
-        if p == None: 
+        pDest = getPileAt (e.x, e.y)
+        if pDest == None: 
             cancelImageMove ("You can only drop a card on a pile.")
             return
-        if p == pileSrc:
+        if pDest == pileSrc:
         # Drop on the same pile it came from. Cancel the move but no error message.
             cancelImageMove ("")
             return
         
-        check = pile[p].checkDrop (cardToMove)
+        check = pile[pDest].checkDrop (cardToMove)
 
         if check == -1:
-            cancelImageMove ("Wrong value for first card on final pile.")
-            return
-        if check == -2:
-            cancelImageMove ("Final piles contain cards of the same suit.")
-            return
-        if check == -3:
-            cancelImageMove ("Final piles are sorted in ascending order.")
-            return
-        if check == -10:
-            cancelImageMove ("Empty play piles can't be reused.")
+            cancelImageMove ("Only aces can go on this pile.")
             return
         if check == -11:
             cancelImageMove ("Pile is full.")
@@ -150,23 +156,26 @@ def Solitaire ():
             cancelImageMove ("Colors should alternate.")
             return
         if check == -13:
-            cancelImageMove ("Values should decrease.")
+            cancelImageMove ("Values should increase.")
             return
         if check == -99:
             cancelImageMove ("Unspecific error!")
             return
+        finalizeMove (pDest)
 
+    # At this point, we can accept the move
+    def finalizeMove (pDest):
+        global pile, pileSrc, cardToMove
 
-        # At this point, we can accept the move
-        pile[pileSrc].moveTopCard (pile[p])
-        recordMove (pileSrc, p)
+        pile[pileSrc].moveTopCard (pile[pDest])
+        recordMove (pileSrc, pDest)
         # Make sure the image is well positioned
         cardToMove.adjustImageLocation()
 
         # Check for win
-        if pile[p].type == Constant.FINALPILE and isWinner():
+        if isWinner():
             messagebox.showinfo ("Solitaire", "You won!") 
-        
+
         # Prepare for next user action
         cardToMove = None
         pileSrc = None
@@ -175,8 +184,8 @@ def Solitaire ():
     def resetGame ():
         # No piles created => nothing to do
         if len(pile) == 0: return
-        # Empty piles
-        for p in range (Constant.INDEX_MIN_PP, Constant.INDEX_MAX_FP+1):
+        # Empty all piles 
+        for p in range (Constant.INDEX_MIN_PP, Constant.INDEX_MAX_PP+1):
             pile[p].cards.clear()
 
         deck.reset()
@@ -187,40 +196,20 @@ def Solitaire ():
             c.updateCoordinates (1000, 1000, 1000, 1000)
             c.adjustImageLocation()
 
-        # Delete the starting value in final piles
-        canvas.delete ("text")
-
     # Deal each card from the deck into the different piles
-    # display the images and get the startValue
+    # display the images
     def deal ():
         global startValue
         resetGame()
-        # Populate play piles with 3 cards in each one
-        for p in range (Constant.INDEX_MIN_PP, Constant.INDEX_MAX_PP+1):
-            for cardCnt in range (3):
+        # Populate play piles with 3 cards in each one except in the 2nd column 
+        for p in range (Constant.INDEX_MIN_PP, Constant.INDEX_MAX_PP):
+            maxCards = 3
+            if p % 4 == 1: maxCards = 2
+            for cardCnt in range (maxCards):
                 c = deck.draw()
                 pile[p].addCard (c)
                 c.adjustImageLocation()
                 c.raiseImage()
-
-        # Populate 3 buffer piles with 2 cards in each one
-        for p in range (Constant.INDEX_MIN_BP, Constant.INDEX_MAX_BP+1):
-            for cardCnt in range (2):
-                c = deck.draw()
-                pile[p].addCard (c)
-                c.adjustImageLocation()
-                c.raiseImage()
-
-        # Populate the first final pile with one card showing
-        c = deck.draw()
-        p = Constant.INDEX_MIN_FP
-        pile[p].addCard (c)
-        c.adjustImageLocation()
-        c.raiseImage()
-
-        Pile.startValue = c.val
-        for p in range (Constant.INDEX_MIN_FP+1, Constant.INDEX_MAX_FP+1):
-            pile[p].displayStartingValue (c.val)
 
         root.update_idletasks()
         root.update()
@@ -235,32 +224,28 @@ def Solitaire ():
     id = canvas.create_rectangle(0, 0, w-1, h-1,outline="white")
 
     # Create the piles
-    for p in range (Constant.INDEX_MIN_PP, Constant.INDEX_MAX_FP+1):
+    for p in range (Constant.INDEX_MIN_PP, Constant.INDEX_MAX_PP+1):
         pile.append (Pile (p))
 
     # Add buttons
     btn1 = Button (canvas, text="Deal", bd=10, bg="white", font=("Arial", 14), height=1, width=8, command=deal)
     canvas.addtag_withtag (btn1, "button")
-    x1 = Constant.FPILE_XBASE + (1 + Constant.PPILE_CNT_ROW1) * Constant.PILE_WIDTH
-    y1 = Constant.FPILE_YBASE + Constant.CARD_OVERLAP
+    x1 = (Constant.PPILE_COLUMNS - 2) * (Constant.PILE_DELTA_X + Constant.PILE_WIDTH)
+    y1 = Constant.PPILE_ROWS  * (Constant.PILE_DELTA_Y + Constant.PILE_HEIGHT) + 3 * Constant.PILE_DELTA_Y
     btn1.place (x=x1, y=y1)
     btn2 = Button (canvas, text="Undo", bd=10, bg="white", font=("Arial", 14), height=1, width=8, command=undoMove)
     canvas.addtag_withtag (btn2, "button")
-    x2 = x1 + Constant.PILE_WIDTH + 3*Constant.PILE_DELTA_X
-    y2 = Constant.FPILE_YBASE + Constant.CARD_OVERLAP
+    x2 = x1 + Constant.PILE_WIDTH + Constant.PILE_DELTA_X
+    y2 = y1
     btn2.place (x=x2, y=y2)
-    btn3 = Button (canvas, text="Hint", bd=10, bg="white", font=("Arial", 14), height=1, width=8, command=simulate)
+    #btn3 = Button (canvas, text="Check", bd=10, bg="white", font=("Arial", 14), height=1, width=8, command=isWinner)
     #canvas.addtag_withtag (btn3, "button")
-    #x3 = x2 + Constant.PILE_WIDTH + 3*Constant.PILE_DELTA_X
-    #y3 = Constant.FPILE_YBASE + Constant.CARD_OVERLAP
+    #x3 = x2 + Constant.PILE_WIDTH + Constant.PILE_DELTA_X
+    #y3 = y2
     #btn3.place (x=x3, y=y3)
-    #btn4 = Button (canvas, text="Stop", bd=10, bg="white", font=("Arial", 14), height=1, width=8, command=stopSimulate)
-    #canvas.addtag_withtag (btn4, "button")
-    #x4 = x3
-    #y4 = y3 - 2 * Constant.CARD_OVERLAP
-    #btn4.place (x=x4, y=y4)
 
     canvas.bind ("<Button-1>", click_handler)
+    canvas.bind ("<Double-Button-1>", double_click_handler)
     canvas.bind ("<B1-Motion>", dragImage)
     canvas.bind ("<ButtonRelease-1>", drop)
 
